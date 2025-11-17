@@ -3,7 +3,6 @@
 import { createClient } from "@supabase/supabase-js";
 import OpenAI from "openai";
 
-// -------------------- Supabase setup --------------------
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
@@ -13,12 +12,11 @@ if (!supabaseUrl || !supabaseAnonKey) {
 
 const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
-// -------------------- OpenAI setup --------------------
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-// -------------------- Simple text chunker --------------------
+// Very simple chunking: split long text into ~1200-character pieces
 function chunkText(text, maxChars = 1200) {
   const chunks = [];
   let start = 0;
@@ -33,6 +31,7 @@ function chunkText(text, maxChars = 1200) {
       break;
     }
 
+    // Try to break on a newline or period near the end of the window
     let breakIndex = cleaned.lastIndexOf("\n", end);
     if (breakIndex < start + maxChars * 0.5) {
       breakIndex = cleaned.lastIndexOf(". ", end);
@@ -48,12 +47,11 @@ function chunkText(text, maxChars = 1200) {
   return chunks.filter((c) => c.length > 0);
 }
 
-// -------------------- API handler --------------------
 export default async function handler(req, res) {
-  console.log("INGEST ROUTE HIT, METHOD:", req.method);
+  console.log("[INGEST] Route hit. Method:", req.method);
 
-  // Always return JSON so the front-end can safely call res.json()
   if (req.method !== "POST") {
+    // Always return JSON so the client can parse it
     return res.status(200).json({
       ok: false,
       stage: "method-check",
@@ -63,13 +61,13 @@ export default async function handler(req, res) {
   }
 
   const { courseId, fileId } = req.body || {};
-  console.log("Incoming body:", req.body);
 
   if (!courseId || !fileId) {
     return res.status(400).json({
       ok: false,
       stage: "input-validation",
       error: "Missing courseId or fileId in request body",
+      body: req.body || null,
     });
   }
 
@@ -82,16 +80,17 @@ export default async function handler(req, res) {
   }
 
   try {
-    // 1) Look up the file row
+    // 1) Look up the file in course_files
+    console.log("[INGEST] Looking up file row:", fileId);
+
     const { data: fileRow, error: fileError } = await supabase
       .from("course_files")
       .select("id, file_path")
       .eq("id", fileId)
       .single();
 
-    console.log("File lookup result:", { fileRow, fileError });
-
     if (fileError || !fileRow) {
+      console.error("[INGEST] File lookup error:", fileError);
       return res.status(404).json({
         ok: false,
         stage: "file-lookup",
@@ -100,55 +99,27 @@ export default async function handler(req, res) {
       });
     }
 
-    // IMPORTANT: trim the path in case a newline or spaces snuck in
-    const rawPath = fileRow.file_path;
-    const cleanPath = (rawPath || "").trim();
+    const { file_path } = fileRow;
+    console.log("[INGEST] file_path from DB:", file_path);
 
-    console.log("Raw file_path from DB:", JSON.stringify(rawPath));
-    console.log("Cleaned file_path used for storage:", JSON.stringify(cleanPath));
-
-    // 2) Get public URL for this object
-    const { data: publicUrlData, error: publicUrlError } = supabase.storage
+    // 2) Download file contents using Supabase SDK (NOT the public URL)
+    const { data: fileData, error: downloadError } = await supabase
+      .storage
       .from("course-files")
-      .getPublicUrl(cleanPath);
+      .download(file_path);
 
-    if (publicUrlError) {
-      console.error("getPublicUrl error:", publicUrlError);
-      return res.status(500).json({
-        ok: false,
-        stage: "public-url",
-        error: "Error calling getPublicUrl",
-        details: publicUrlError.message,
-      });
-    }
-
-    const fileUrl = publicUrlData?.publicUrl;
-    console.log("Generated public URL:", fileUrl);
-
-    if (!fileUrl) {
-      return res.status(500).json({
-        ok: false,
-        stage: "public-url",
-        error: "Could not generate public URL for file",
-      });
-    }
-
-    // 3) Download file contents
-    const response = await fetch(fileUrl);
-    console.log("Download HTTP status:", response.status);
-
-    if (!response.ok) {
+    if (downloadError || !fileData) {
+      console.error("[INGEST] downloadError:", downloadError);
       return res.status(500).json({
         ok: false,
         stage: "download",
-        error: "Could not download file from storage",
-        httpStatus: response.status,
-        fileUrl,
+        error: "Could not download file from storage via SDK",
+        details: downloadError?.message ?? null,
       });
     }
 
-    const text = await response.text();
-    console.log("Downloaded text length:", text?.length ?? 0);
+    // fileData is a Blob; convert to text
+    const text = await fileData.text();
 
     if (!text || !text.trim()) {
       return res.status(400).json({
@@ -158,9 +129,10 @@ export default async function handler(req, res) {
       });
     }
 
-    // 4) Chunk the text
+    console.log("[INGEST] Downloaded text length:", text.length);
+
+    // 3) Split into chunks
     const chunks = chunkText(text, 1200);
-    console.log("Number of chunks:", chunks.length);
 
     if (chunks.length === 0) {
       return res.status(400).json({
@@ -170,13 +142,14 @@ export default async function handler(req, res) {
       });
     }
 
-    // 5) Create embeddings
+    console.log("[INGEST] Number of chunks:", chunks.length);
+
+    // 4) Create embeddings for all chunks at once
     const embeddingResponse = await openai.embeddings.create({
       model: "text-embedding-3-small",
       input: chunks,
     });
 
-    // 6) Prepare rows for insertion
     const rowsToInsert = chunks.map((content, index) => ({
       course_id: courseId,
       file_id: fileId,
@@ -185,13 +158,13 @@ export default async function handler(req, res) {
       embedding: embeddingResponse.data[index].embedding,
     }));
 
-    // 7) Insert into course_chunks
+    // 5) Insert into course_chunks
     const { error: insertError } = await supabase
       .from("course_chunks")
       .insert(rowsToInsert);
 
     if (insertError) {
-      console.error("Insert error:", insertError);
+      console.error("[INGEST] Insert error:", insertError);
       return res.status(500).json({
         ok: false,
         stage: "insert",
@@ -200,7 +173,8 @@ export default async function handler(req, res) {
       });
     }
 
-    // ✅ All good
+    console.log("[INGEST] Success. Inserted rows:", rowsToInsert.length);
+
     return res.status(200).json({
       ok: true,
       stage: "done",
@@ -208,7 +182,7 @@ export default async function handler(req, res) {
       chunksInserted: rowsToInsert.length,
     });
   } catch (err) {
-    console.error("Unexpected error in /api/ingest-file:", err);
+    console.error("[INGEST] Unexpected error in /api/ingest-file:", err);
     return res.status(500).json({
       ok: false,
       stage: "unexpected",
