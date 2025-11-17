@@ -109,6 +109,12 @@ const errorStyle = {
   color: "#f97373"
 };
 
+const ingestStyle = {
+  marginTop: "0.5rem",
+  fontSize: "0.85rem",
+  color: "#a5b4fc"
+};
+
 const smallTextStyle = {
   marginTop: "0.4rem",
   fontSize: "0.8rem",
@@ -179,6 +185,10 @@ export default function CourseDetailPage({ course, initialFiles }) {
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState("");
 
+  // NEW: ingestion state
+  const [ingesting, setIngesting] = useState(false);
+  const [ingestMessage, setIngestMessage] = useState("");
+
   const createdDate = course.createdAt
     ? new Date(course.createdAt).toLocaleString()
     : null;
@@ -186,6 +196,7 @@ export default function CourseDetailPage({ course, initialFiles }) {
   async function handleUpload(e) {
     e.preventDefault();
     setError("");
+    setIngestMessage("");
 
     if (!selectedFile) {
       setError("Please choose a file to upload.");
@@ -221,11 +232,11 @@ export default function CourseDetailPage({ course, initialFiles }) {
             file_path: path
           }
         ])
-        .select("id, file_name, file_path, created_at")
+        .select("id, course_id, file_name, file_path, created_at")
         .single();
 
-      if (insertError) {
-        console.error("Insert error:", insertError.message);
+      if (insertError || !inserted) {
+        console.error("Insert error:", insertError?.message);
         setError(
           "File uploaded, but could not save metadata. Please refresh."
         );
@@ -238,18 +249,51 @@ export default function CourseDetailPage({ course, initialFiles }) {
       setFileTitle("");
       setSelectedFile(null);
 
-      // Clear the file input element
+      // Clear the file input element (reset the form)
       if (e.target && e.target.reset) {
         e.target.reset();
-      } else {
-        // If form reset not available, we'll just rely on state
       }
 
-      setUploading(false);
+      // 4) Call AI ingestion endpoint
+      try {
+        setIngesting(true);
+        setIngestMessage(
+          "Processing file with AI (creating chunks)… this may take a few seconds."
+        );
+
+        const res = await fetch("/api/ingest-file", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            courseId: inserted.course_id || course.id,
+            fileId: inserted.id
+          })
+        });
+
+        const json = await res.json();
+        console.log("Ingest response JSON:", json);
+
+        if (!res.ok || !json.ok) {
+          setIngestMessage(
+            `Ingestion error: ${json.error || "Unknown problem"}`
+          );
+        } else {
+          setIngestMessage(
+            `Ingestion complete! Chunks created: ${json.chunksInserted}`
+          );
+        }
+      } catch (ingestErr) {
+        console.error("Ingestion request error:", ingestErr);
+        setIngestMessage("Ingestion failed due to a network/server error.");
+      } finally {
+        setIngesting(false);
+        setUploading(false);
+      }
     } catch (err) {
       console.error("Unexpected error:", err);
       setError("Something went wrong. Please try again.");
       setUploading(false);
+      setIngesting(false);
     }
   }
 
@@ -336,9 +380,16 @@ export default function CourseDetailPage({ course, initialFiles }) {
             </div>
 
             {error && <div style={errorStyle}>{error}</div>}
+            {ingestMessage && <div style={ingestStyle}>{ingestMessage}</div>}
 
-            <button type="submit" style={buttonStyle} disabled={uploading}>
-              {uploading ? "Uploading..." : "Upload file"}
+            <button
+              type="submit"
+              style={buttonStyle}
+              disabled={uploading || ingesting}
+            >
+              {uploading || ingesting
+                ? "Uploading & ingesting..."
+                : "Upload file"}
             </button>
 
             <div style={smallTextStyle}>
@@ -350,7 +401,13 @@ export default function CourseDetailPage({ course, initialFiles }) {
           {/* File list */}
           <div style={fileListStyle}>
             {files.length === 0 ? (
-              <p style={{ fontSize: "0.9rem", opacity: 0.8, marginTop: "0.75rem" }}>
+              <p
+                style={{
+                  fontSize: "0.9rem",
+                  opacity: 0.8,
+                  marginTop: "0.75rem"
+                }}
+              >
                 No files uploaded yet for this course.
               </p>
             ) : (
