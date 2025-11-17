@@ -46,10 +46,8 @@ function chunkText(text, maxChars = 1200) {
 }
 
 export default async function handler(req, res) {
-  // 🔍 DEBUG: tell us what method the server is actually seeing
   console.log("INGEST ROUTE HIT, METHOD:", req.method);
 
-  // Instead of returning 405, return JSON so the browser can always parse it
   if (req.method !== "POST") {
     return res.status(200).json({
       ok: false,
@@ -96,35 +94,25 @@ export default async function handler(req, res) {
     }
 
     const { file_path } = fileRow;
+    console.log("Ingesting file_path:", file_path);
 
-    // 2) Get a public URL for the file in the course-files bucket
-    const { data: publicUrlData } = supabase.storage
+    // 2) Download the file directly from Supabase Storage
+    const { data: fileData, error: downloadError } = await supabase.storage
       .from("course-files")
-      .getPublicUrl(file_path);
+      .download(file_path);
 
-    const fileUrl = publicUrlData?.publicUrl;
-
-    if (!fileUrl) {
-      return res.status(500).json({
-        ok: false,
-        stage: "public-url",
-        error: "Could not generate public URL for file",
-      });
-    }
-
-    // 3) Download the file contents (assuming plain text for now)
-    const response = await fetch(fileUrl);
-    if (!response.ok) {
-      console.error("Download error status:", response.status);
+    if (downloadError || !fileData) {
+      console.error("Download error:", downloadError);
       return res.status(500).json({
         ok: false,
         stage: "download",
         error: "Could not download file from storage",
-        httpStatus: response.status,
+        details: downloadError?.message ?? null,
       });
     }
 
-    const text = await response.text();
+    // fileData is a Blob; convert to text
+    const text = await fileData.text();
 
     if (!text || !text.trim()) {
       return res.status(400).json({
@@ -134,7 +122,7 @@ export default async function handler(req, res) {
       });
     }
 
-    // 4) Split into chunks
+    // 3) Split into chunks
     const chunks = chunkText(text, 1200);
 
     if (chunks.length === 0) {
@@ -145,7 +133,7 @@ export default async function handler(req, res) {
       });
     }
 
-    // 5) Create embeddings for all chunks at once
+    // 4) Create embeddings for all chunks at once
     const embeddingResponse = await openai.embeddings.create({
       model: "text-embedding-3-small",
       input: chunks,
@@ -159,7 +147,7 @@ export default async function handler(req, res) {
       embedding: embeddingResponse.data[index].embedding,
     }));
 
-    // 6) Insert into course_chunks
+    // 5) Insert into course_chunks
     const { error: insertError } = await supabase
       .from("course_chunks")
       .insert(rowsToInsert);
