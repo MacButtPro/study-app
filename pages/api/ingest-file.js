@@ -1,6 +1,9 @@
+// pages/api/ingest-file.js
+
 import { createClient } from "@supabase/supabase-js";
 import OpenAI from "openai";
 
+// -------------------- Supabase setup --------------------
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
@@ -10,11 +13,12 @@ if (!supabaseUrl || !supabaseAnonKey) {
 
 const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
+// -------------------- OpenAI setup --------------------
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-// Very simple chunking: split long text into ~1200-character pieces
+// -------------------- Simple text chunker --------------------
 function chunkText(text, maxChars = 1200) {
   const chunks = [];
   let start = 0;
@@ -29,7 +33,6 @@ function chunkText(text, maxChars = 1200) {
       break;
     }
 
-    // Try to break on a newline or period near the end of the window
     let breakIndex = cleaned.lastIndexOf("\n", end);
     if (breakIndex < start + maxChars * 0.5) {
       breakIndex = cleaned.lastIndexOf(". ", end);
@@ -45,10 +48,11 @@ function chunkText(text, maxChars = 1200) {
   return chunks.filter((c) => c.length > 0);
 }
 
+// -------------------- API handler --------------------
 export default async function handler(req, res) {
   console.log("INGEST ROUTE HIT, METHOD:", req.method);
 
-  // Always return JSON, even for wrong method, so browser can parse it
+  // Always return JSON so the front-end can safely call res.json()
   if (req.method !== "POST") {
     return res.status(200).json({
       ok: false,
@@ -59,6 +63,7 @@ export default async function handler(req, res) {
   }
 
   const { courseId, fileId } = req.body || {};
+  console.log("Incoming body:", req.body);
 
   if (!courseId || !fileId) {
     return res.status(400).json({
@@ -77,15 +82,16 @@ export default async function handler(req, res) {
   }
 
   try {
-    // 1) Look up the file in course_files
+    // 1) Look up the file row
     const { data: fileRow, error: fileError } = await supabase
       .from("course_files")
       .select("id, file_path")
       .eq("id", fileId)
       .single();
 
+    console.log("File lookup result:", { fileRow, fileError });
+
     if (fileError || !fileRow) {
-      console.error("File lookup error:", fileError);
       return res.status(404).json({
         ok: false,
         stage: "file-lookup",
@@ -94,21 +100,44 @@ export default async function handler(req, res) {
       });
     }
 
-    const filePath = fileRow.file_path;
+    // IMPORTANT: trim the path in case a newline or spaces snuck in
+    const rawPath = fileRow.file_path;
+    const cleanPath = (rawPath || "").trim();
 
-    // 2) Manually build the PUBLIC URL (this is the part that was going wrong)
-    // For your project/bucket, a public URL looks like:
-    //   <SUPABASE_URL>/storage/v1/object/public/course-files/<filePath>
-    const fileUrl = `${supabaseUrl}/storage/v1/object/public/course-files/${filePath}`;
+    console.log("Raw file_path from DB:", JSON.stringify(rawPath));
+    console.log("Cleaned file_path used for storage:", JSON.stringify(cleanPath));
 
-    console.log("Ingest: filePath from DB:", filePath);
-    console.log("Ingest: calculated public fileUrl:", fileUrl);
+    // 2) Get public URL for this object
+    const { data: publicUrlData, error: publicUrlError } = supabase.storage
+      .from("course-files")
+      .getPublicUrl(cleanPath);
 
-    // 3) Download the file contents (assuming plain text for now)
+    if (publicUrlError) {
+      console.error("getPublicUrl error:", publicUrlError);
+      return res.status(500).json({
+        ok: false,
+        stage: "public-url",
+        error: "Error calling getPublicUrl",
+        details: publicUrlError.message,
+      });
+    }
+
+    const fileUrl = publicUrlData?.publicUrl;
+    console.log("Generated public URL:", fileUrl);
+
+    if (!fileUrl) {
+      return res.status(500).json({
+        ok: false,
+        stage: "public-url",
+        error: "Could not generate public URL for file",
+      });
+    }
+
+    // 3) Download file contents
     const response = await fetch(fileUrl);
+    console.log("Download HTTP status:", response.status);
 
     if (!response.ok) {
-      console.error("Download error status:", response.status);
       return res.status(500).json({
         ok: false,
         stage: "download",
@@ -119,6 +148,7 @@ export default async function handler(req, res) {
     }
 
     const text = await response.text();
+    console.log("Downloaded text length:", text?.length ?? 0);
 
     if (!text || !text.trim()) {
       return res.status(400).json({
@@ -128,8 +158,9 @@ export default async function handler(req, res) {
       });
     }
 
-    // 4) Split into chunks
+    // 4) Chunk the text
     const chunks = chunkText(text, 1200);
+    console.log("Number of chunks:", chunks.length);
 
     if (chunks.length === 0) {
       return res.status(400).json({
@@ -139,12 +170,13 @@ export default async function handler(req, res) {
       });
     }
 
-    // 5) Create embeddings for all chunks at once
+    // 5) Create embeddings
     const embeddingResponse = await openai.embeddings.create({
       model: "text-embedding-3-small",
       input: chunks,
     });
 
+    // 6) Prepare rows for insertion
     const rowsToInsert = chunks.map((content, index) => ({
       course_id: courseId,
       file_id: fileId,
@@ -153,7 +185,7 @@ export default async function handler(req, res) {
       embedding: embeddingResponse.data[index].embedding,
     }));
 
-    // 6) Insert into course_chunks
+    // 7) Insert into course_chunks
     const { error: insertError } = await supabase
       .from("course_chunks")
       .insert(rowsToInsert);
@@ -168,6 +200,7 @@ export default async function handler(req, res) {
       });
     }
 
+    // ✅ All good
     return res.status(200).json({
       ok: true,
       stage: "done",
