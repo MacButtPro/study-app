@@ -1,0 +1,135 @@
+const pageStyle = {
+  minHeight: "100vh",
+  margin: 0,
+  fontFamily:
+    "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
+  background: "#020617",
+  color: "#e5e7eb"
+};
+
+const containerStyle = {
+  maxWidth: "900px",
+  margin: "0 auto",
+  padding: "2.5rem 1.5rem 3rem"
+};
+
+const headerStyle = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "center",
+  marginBottom: "2rem"
+};
+
+const titleStyle = {
+  fontSize: "2rem",
+  fontWeight: 700
+};
+
+const subtitleStyle = {
+  opacity: 0.8,
+  marginTop: "0.25rem",
+  fontSize: "0.95rem"
+};
+
+const backLinkStyle = {
+  fontSize: "0.9rem",
+  textDecoration: "none",
+  color: "#a5b4fc",
+  border: "1px solid #4f46e5",
+  padding: "0.5rem 0.9rem",
+  borderRadius: "999px"
+};
+
+const courseListStyle = {
+  display: "flex",
+  flexDirection: "column",
+  gap: "1rem",
+  marginTop: "1.5rem"
+};
+
+const courseCardStyle = {
+  padding: "1rem 1.25rem",
+  borderRadius: "0.75rem",
+  background:
+    "linear-gradient(135deg, rgba(79,70,229,0.2), rgba(15,23,42,0.95))",
+  border: "1px solid rgba(148,163,184,0.4)"
+};
+
+const courseTitleStyle = {
+  fontWeight: 600,
+  marginBottom: "0.25rem"
+};
+
+const badgeStyle = {
+  display: "inline-block",
+  fontSize: "0.75rem",
+  padding: "0.2rem 0.5rem",
+  borderRadius: "999px",
+  background: "rgba(15,118,110,0.2)",
+  color: "#5eead4",
+  marginLeft: "0.5rem"
+};
+
+export default function CoursesPage() {
+  return (
+    <div style={pageStyle}>
+      <div style={containerStyle}>
+        <header style={headerStyle}>
+          <div>
+            <h1 style={titleStyle}>My Courses</h1>
+            <p style={subtitleStyle}>
+              This is where you&apos;ll see all the subjects you&apos;re
+              studying with your AI tutor.
+            </p>
+          </div>
+
+          <a href="/" style={backLinkStyle}>
+            ← Back to Home
+          </a>
+        </header>
+
+        <section>
+          <p style={{ fontSize: "0.95rem", opacity: 0.85 }}>
+            Right now this is just a preview. Soon, you&apos;ll be able to:
+          </p>
+          <ul
+            style={{
+              marginTop: "0.75rem",
+              marginLeft: "1.1rem",
+              fontSize: "0.95rem",
+              opacity: 0.9
+            }}
+          >
+            <li>Create a course like &quot;Pre-Calculus – Fall 2025&quot;</li>
+            <li>Upload your notes, homework, and lecture transcripts</li>
+            <li>Let the AI build a step-by-step learning path for you</li>
+          </ul>
+        </section>
+
+        <section style={courseListStyle}>
+          <div style={courseCardStyle}>
+            <div style={courseTitleStyle}>
+              Pre-Calculus – IVC
+              <span style={badgeStyle}>Example</span>
+            </div>
+            <p style={{ fontSize: "0.9rem", opacity: 0.85 }}>
+              A sample course representing your real class. Later, this will be
+              created automatically from your uploads.
+            </p>
+          </div>
+
+          <div style={courseCardStyle}>
+            <div style={courseTitleStyle}>
+              Trigonometry Review
+              <span style={badgeStyle}>Example</span>
+            </div>
+            <p style={{ fontSize: "0.9rem", opacity: 0.85 }}>
+              Another sample course. Eventually you&apos;ll be able to track all
+              the math you&apos;re studying here.
+            </p>
+          </div>
+        </section>
+      </div>
+    </div>
+  );
+}
