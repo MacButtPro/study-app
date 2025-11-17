@@ -19,7 +19,8 @@ const headerStyle = {
   display: "flex",
   justifyContent: "space-between",
   alignItems: "center",
-  marginBottom: "2rem"
+  marginBottom: "2rem",
+  gap: "1rem"
 };
 
 const titleStyle = {
@@ -40,6 +41,19 @@ const backLinkStyle = {
   border: "1px solid #4f46e5",
   padding: "0.5rem 0.9rem",
   borderRadius: "999px"
+};
+
+const addButtonStyle = {
+  fontSize: "0.9rem",
+  textDecoration: "none",
+  color: "#ecfeff",
+  background:
+    "linear-gradient(135deg, rgba(56,189,248,0.9), rgba(37,99,235,0.9))",
+  padding: "0.5rem 1rem",
+  borderRadius: "999px",
+  border: "none",
+  display: "inline-block",
+  whiteSpace: "nowrap"
 };
 
 const courseListStyle = {
@@ -76,7 +90,6 @@ export async function getServerSideProps() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
-  // Simple safety check
   const hasUrl = Boolean(url);
   const hasKey = Boolean(anonKey);
 
@@ -119,7 +132,7 @@ export default function CoursesPage({ courses, error, debug }) {
     <div style={pageStyle}>
       <div style={containerStyle}>
         <header style={headerStyle}>
-          <div>
+          <div style={{ flex: 1 }}>
             <h1 style={titleStyle}>My Courses</h1>
             <p style={subtitleStyle}>
               This is where you&apos;ll see all the subjects you&apos;re
@@ -127,9 +140,14 @@ export default function CoursesPage({ courses, error, debug }) {
             </p>
           </div>
 
-          <a href="/" style={backLinkStyle}>
-            ← Back to Home
-          </a>
+          <div style={{ display: "flex", gap: "0.75rem" }}>
+            <a href="/courses/new" style={addButtonStyle}>
+              + Add Course
+            </a>
+            <a href="/" style={backLinkStyle}>
+              ← Back to Home
+            </a>
+          </div>
         </header>
 
         <section>
@@ -145,7 +163,7 @@ export default function CoursesPage({ courses, error, debug }) {
           </p>
         )}
 
-        {/* Temporary debug info — we can remove this later */}
+        {/* Debug info – we can remove this later */}
         <section
           style={{
             marginTop: "1rem",
@@ -162,8 +180,8 @@ export default function CoursesPage({ courses, error, debug }) {
         <section style={courseListStyle}>
           {courses.length === 0 && !error && (
             <p style={{ fontSize: "0.95rem", opacity: 0.8 }}>
-              You don&apos;t have any courses yet. Soon you&apos;ll be able to
-              create one from the app.
+              You don&apos;t have any courses yet. Use &quot;Add Course&quot; to
+              create one.
             </p>
           )}
 
