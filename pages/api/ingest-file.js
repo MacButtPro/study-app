@@ -1,7 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import OpenAI from "openai";
 
-// --- Supabase setup ---
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
@@ -11,12 +10,11 @@ if (!supabaseUrl || !supabaseAnonKey) {
 
 const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
-// --- OpenAI setup ---
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-// --- Very simple chunking ---
+// Very simple chunking: split long text into ~1200-character pieces
 function chunkText(text, maxChars = 1200) {
   const chunks = [];
   let start = 0;
@@ -47,23 +45,8 @@ function chunkText(text, maxChars = 1200) {
 }
 
 export default async function handler(req, res) {
-  console.log("[ingest-file] hit:", {
-    method: req.method,
-    body: req.body,
-  });
-
-  // GET health check
-  if (req.method === "GET") {
-    return res.status(200).json({
-      ok: true,
-      method: "GET",
-      message: "API route is working.",
-    });
-  }
-
-  // Must be POST for ingestion
   if (req.method !== "POST") {
-    res.setHeader("Allow", "GET, POST");
+    res.setHeader("Allow", "POST");
     return res.status(405).json({ error: "Method not allowed" });
   }
 
@@ -82,7 +65,6 @@ export default async function handler(req, res) {
   }
 
   try {
-    // 1) Lookup file
     const { data: fileRow, error: fileError } = await supabase
       .from("course_files")
       .select("id, file_path")
@@ -90,13 +72,13 @@ export default async function handler(req, res) {
       .single();
 
     if (fileError || !fileRow) {
-      console.error("[file lookup error]:", fileError);
-      return res.status(404).json({ error: "File not found" });
+      return res
+        .status(404)
+        .json({ error: "File not found in course_files table" });
     }
 
     const { file_path } = fileRow;
 
-    // 2) Public URL
     const { data: publicUrlData } = supabase.storage
       .from("course-files")
       .getPublicUrl(file_path);
@@ -104,28 +86,27 @@ export default async function handler(req, res) {
     const fileUrl = publicUrlData?.publicUrl;
 
     if (!fileUrl) {
-      return res.status(500).json({ error: "Failed to get file public URL" });
+      return res.status(500).json({ error: "Could not get public file URL" });
     }
 
-    // 3) Download raw text
-    const fileRes = await fetch(fileUrl);
-    if (!fileRes.ok) {
-      return res.status(500).json({ error: "Failed to download file" });
+    const response = await fetch(fileUrl);
+    if (!response.ok) {
+      return res
+        .status(500)
+        .json({ error: "Could not download file from storage" });
     }
 
-    const text = await fileRes.text();
-
+    const text = await response.text();
     if (!text.trim()) {
-      return res.status(400).json({ error: "File is empty" });
+      return res.status(400).json({ error: "File is empty or unreadable" });
     }
 
-    // 4) Chunk
-    const chunks = chunkText(text);
+    const chunks = chunkText(text, 1200);
+
     if (chunks.length === 0) {
       return res.status(400).json({ error: "No chunks produced" });
     }
 
-    // 5) Create embeddings
     const embeddingResponse = await openai.embeddings.create({
       model: "text-embedding-3-small",
       input: chunks,
@@ -139,25 +120,23 @@ export default async function handler(req, res) {
       embedding: embeddingResponse.data[index].embedding,
     }));
 
-    // 6) Insert into Supabase
-    const { error: insertErr } = await supabase
+    const { error: insertError } = await supabase
       .from("course_chunks")
       .insert(rowsToInsert);
 
-    if (insertErr) {
-      console.error("[insert error]:", insertErr);
-      return res.status(500).json({ error: "Failed inserting chunks" });
+    if (insertError) {
+      return res.status(500).json({
+        error: "Failed to insert chunks",
+        details: insertError.message,
+      });
     }
 
-    return res.status(200).json({
-      success: true,
-      chunksInserted: rowsToInsert.length,
-    });
+    return res
+      .status(200)
+      .json({ success: true, chunksInserted: rowsToInsert.length });
   } catch (err) {
-    console.error("Unhandled error:", err);
-    return res.status(500).json({
-      error: "Unexpected server error",
-      details: String(err),
-    });
+    return res
+      .status(500)
+      .json({ error: "Unexpected server error", details: String(err) });
   }
 }
