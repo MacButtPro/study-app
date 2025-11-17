@@ -185,8 +185,13 @@ export default function CoursesPage({ courses, error, debug }) {
             </p>
           )}
 
-          {courses.map((course) => (
-            <div key={course.id} style={courseCardStyle}>
+        {courses.map((course) => (
+          <a
+            key={course.id}
+            href={`/courses/${course.id}`}
+            style={{ textDecoration: "none", color: "inherit" }}
+          >
+            <div style={courseCardStyle}>
               <div style={courseTitleStyle}>
                 {course.title}
                 <span style={badgeStyle}>From Supabase</span>
@@ -195,9 +200,5 @@ export default function CoursesPage({ courses, error, debug }) {
                 {course.description || "No description yet."}
               </p>
             </div>
-          ))}
-        </section>
-      </div>
-    </div>
-  );
-}
+          </a>
+        ))}
