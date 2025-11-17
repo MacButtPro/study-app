@@ -1,5 +1,3 @@
-// pages/api/ingest-file.js
-
 import { createClient } from "@supabase/supabase-js";
 import OpenAI from "openai";
 
@@ -18,12 +16,11 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-// --- Very simple chunking: split long text into ~1200-character pieces ---
+// --- Very simple chunking ---
 function chunkText(text, maxChars = 1200) {
   const chunks = [];
   let start = 0;
 
-  // Normalize newlines
   const cleaned = text.replace(/\r\n/g, "\n");
 
   while (start < cleaned.length) {
@@ -34,7 +31,6 @@ function chunkText(text, maxChars = 1200) {
       break;
     }
 
-    // Try to break on a newline or period near the end of the window
     let breakIndex = cleaned.lastIndexOf("\n", end);
     if (breakIndex < start + maxChars * 0.5) {
       breakIndex = cleaned.lastIndexOf(". ", end);
@@ -56,7 +52,7 @@ export default async function handler(req, res) {
     body: req.body,
   });
 
-  // Simple health-check for GET (so visiting in the browser still works)
+  // GET health check
   if (req.method === "GET") {
     return res.status(200).json({
       ok: true,
@@ -65,7 +61,7 @@ export default async function handler(req, res) {
     });
   }
 
-  // We only allow POST for real work
+  // Must be POST for ingestion
   if (req.method !== "POST") {
     res.setHeader("Allow", "GET, POST");
     return res.status(405).json({ error: "Method not allowed" });
@@ -74,19 +70,19 @@ export default async function handler(req, res) {
   const { courseId, fileId } = req.body || {};
 
   if (!courseId || !fileId) {
-    return res.status(400).json({
-      error: "Missing courseId or fileId in request body",
-    });
+    return res
+      .status(400)
+      .json({ error: "Missing courseId or fileId in request body" });
   }
 
   if (!process.env.OPENAI_API_KEY) {
-    return res.status(500).json({
-      error: "OPENAI_API_KEY is not set on the server",
-    });
+    return res
+      .status(500)
+      .json({ error: "OPENAI_API_KEY is not set on the server" });
   }
 
   try {
-    // 1) Look up the file in course_files
+    // 1) Lookup file
     const { data: fileRow, error: fileError } = await supabase
       .from("course_files")
       .select("id, file_path")
@@ -94,59 +90,42 @@ export default async function handler(req, res) {
       .single();
 
     if (fileError || !fileRow) {
-      console.error("[ingest-file] File lookup error:", fileError);
-      return res
-        .status(404)
-        .json({ error: "File not found in course_files table" });
+      console.error("[file lookup error]:", fileError);
+      return res.status(404).json({ error: "File not found" });
     }
 
     const { file_path } = fileRow;
 
-    // 2) Get a public URL for the file in the course-files bucket
-    const { data: publicUrlData, error: publicUrlError } = supabase.storage
+    // 2) Public URL
+    const { data: publicUrlData } = supabase.storage
       .from("course-files")
       .getPublicUrl(file_path);
-
-    if (publicUrlError) {
-      console.error("[ingest-file] getPublicUrl error:", publicUrlError);
-    }
 
     const fileUrl = publicUrlData?.publicUrl;
 
     if (!fileUrl) {
-      return res
-        .status(500)
-        .json({ error: "Could not generate public URL for file" });
+      return res.status(500).json({ error: "Failed to get file public URL" });
     }
 
-    // 3) Download the file contents (we assume it's plain text for now)
-    const downloadRes = await fetch(fileUrl);
-
-    if (!downloadRes.ok) {
-      console.error("[ingest-file] Download error status:", downloadRes.status);
-      return res
-        .status(500)
-        .json({ error: "Could not download file from storage" });
+    // 3) Download raw text
+    const fileRes = await fetch(fileUrl);
+    if (!fileRes.ok) {
+      return res.status(500).json({ error: "Failed to download file" });
     }
 
-    const text = await downloadRes.text();
+    const text = await fileRes.text();
 
-    if (!text || !text.trim()) {
-      return res.status(400).json({
-        error: "File appears to be empty or not readable as text",
-      });
+    if (!text.trim()) {
+      return res.status(400).json({ error: "File is empty" });
     }
 
-    // 4) Split into chunks
-    const chunks = chunkText(text, 1200);
-
+    // 4) Chunk
+    const chunks = chunkText(text);
     if (chunks.length === 0) {
-      return res
-        .status(400)
-        .json({ error: "No chunks produced from file contents" });
+      return res.status(400).json({ error: "No chunks produced" });
     }
 
-    // 5) Create embeddings for all chunks at once
+    // 5) Create embeddings
     const embeddingResponse = await openai.embeddings.create({
       model: "text-embedding-3-small",
       input: chunks,
@@ -160,29 +139,22 @@ export default async function handler(req, res) {
       embedding: embeddingResponse.data[index].embedding,
     }));
 
-    // 6) Insert into course_chunks
-    const { error: insertError } = await supabase
+    // 6) Insert into Supabase
+    const { error: insertErr } = await supabase
       .from("course_chunks")
       .insert(rowsToInsert);
 
-    if (insertError) {
-      console.error("[ingest-file] Insert error:", insertError);
-      return res.status(500).json({
-        error: "Failed to insert chunks into course_chunks",
-        details: insertError.message,
-      });
+    if (insertErr) {
+      console.error("[insert error]:", insertErr);
+      return res.status(500).json({ error: "Failed inserting chunks" });
     }
-
-    console.log(
-      `[ingest-file] Success, inserted ${rowsToInsert.length} chunks for file ${fileId}`
-    );
 
     return res.status(200).json({
       success: true,
       chunksInserted: rowsToInsert.length,
     });
   } catch (err) {
-    console.error("[ingest-file] Unexpected error:", err);
+    console.error("Unhandled error:", err);
     return res.status(500).json({
       error: "Unexpected server error",
       details: String(err),
