@@ -29,6 +29,7 @@ function chunkText(text, maxChars = 1200) {
       break;
     }
 
+    // Try to break on a newline or period near the end of the window
     let breakIndex = cleaned.lastIndexOf("\n", end);
     if (breakIndex < start + maxChars * 0.5) {
       breakIndex = cleaned.lastIndexOf(". ", end);
@@ -45,8 +46,18 @@ function chunkText(text, maxChars = 1200) {
 }
 
 export default async function handler(req, res) {
+  // ✅ Keep GET for quick “is it alive?” checks
+  if (req.method === "GET") {
+    return res.status(200).json({
+      ok: true,
+      method: "GET",
+      message: "API route is working.",
+    });
+  }
+
+  // ✅ Only allow POST for ingestion
   if (req.method !== "POST") {
-    res.setHeader("Allow", "POST");
+    res.setHeader("Allow", ["GET", "POST"]);
     return res.status(405).json({ error: "Method not allowed" });
   }
 
@@ -65,6 +76,7 @@ export default async function handler(req, res) {
   }
 
   try {
+    // 1) Look up the file in course_files
     const { data: fileRow, error: fileError } = await supabase
       .from("course_files")
       .select("id, file_path")
@@ -72,6 +84,7 @@ export default async function handler(req, res) {
       .single();
 
     if (fileError || !fileRow) {
+      console.error("File lookup error:", fileError);
       return res
         .status(404)
         .json({ error: "File not found in course_files table" });
@@ -79,6 +92,7 @@ export default async function handler(req, res) {
 
     const { file_path } = fileRow;
 
+    // 2) Get a public URL for the file in the course-files bucket
     const { data: publicUrlData } = supabase.storage
       .from("course-files")
       .getPublicUrl(file_path);
@@ -86,27 +100,38 @@ export default async function handler(req, res) {
     const fileUrl = publicUrlData?.publicUrl;
 
     if (!fileUrl) {
-      return res.status(500).json({ error: "Could not get public file URL" });
+      return res
+        .status(500)
+        .json({ error: "Could not generate public URL for file" });
     }
 
+    // 3) Download the file contents (assume plain text for now)
     const response = await fetch(fileUrl);
     if (!response.ok) {
+      console.error("Download error status:", response.status);
       return res
         .status(500)
         .json({ error: "Could not download file from storage" });
     }
 
     const text = await response.text();
-    if (!text.trim()) {
-      return res.status(400).json({ error: "File is empty or unreadable" });
+
+    if (!text || !text.trim()) {
+      return res
+        .status(400)
+        .json({ error: "File appears to be empty or not readable as text" });
     }
 
+    // 4) Split into chunks
     const chunks = chunkText(text, 1200);
 
     if (chunks.length === 0) {
-      return res.status(400).json({ error: "No chunks produced" });
+      return res
+        .status(400)
+        .json({ error: "No chunks produced from file contents" });
     }
 
+    // 5) Create embeddings for all chunks at once
     const embeddingResponse = await openai.embeddings.create({
       model: "text-embedding-3-small",
       input: chunks,
@@ -120,13 +145,15 @@ export default async function handler(req, res) {
       embedding: embeddingResponse.data[index].embedding,
     }));
 
+    // 6) Insert into course_chunks
     const { error: insertError } = await supabase
       .from("course_chunks")
       .insert(rowsToInsert);
 
     if (insertError) {
+      console.error("Insert error:", insertError);
       return res.status(500).json({
-        error: "Failed to insert chunks",
+        error: "Failed to insert chunks into course_chunks",
         details: insertError.message,
       });
     }
@@ -135,6 +162,7 @@ export default async function handler(req, res) {
       .status(200)
       .json({ success: true, chunksInserted: rowsToInsert.length });
   } catch (err) {
+    console.error("Unexpected error in /api/ingest-file:", err);
     return res
       .status(500)
       .json({ error: "Unexpected server error", details: String(err) });
