@@ -185,20 +185,25 @@ export default function CoursesPage({ courses, error, debug }) {
             </p>
           )}
 
-        {courses.map((course) => (
-          <a
-            key={course.id}
-            href={`/courses/${course.id}`}
-            style={{ textDecoration: "none", color: "inherit" }}
-          >
-            <div style={courseCardStyle}>
-              <div style={courseTitleStyle}>
-                {course.title}
-                <span style={badgeStyle}>From Supabase</span>
+          {courses.map((course) => (
+            <a
+              key={course.id}
+              href={`/courses/${course.id}`}
+              style={{ textDecoration: "none", color: "inherit" }}
+            >
+              <div style={courseCardStyle}>
+                <div style={courseTitleStyle}>
+                  {course.title}
+                  <span style={badgeStyle}>From Supabase</span>
+                </div>
+                <p style={{ fontSize: "0.9rem", opacity: 0.85 }}>
+                  {course.description || "No description yet."}
+                </p>
               </div>
-              <p style={{ fontSize: "0.9rem", opacity: 0.85 }}>
-                {course.description || "No description yet."}
-              </p>
-            </div>
-          </a>
-        ))}
+            </a>
+          ))}
+        </section>
+      </div>
+    </div>
+  );
+}
