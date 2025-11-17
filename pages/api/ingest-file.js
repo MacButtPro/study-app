@@ -48,6 +48,7 @@ function chunkText(text, maxChars = 1200) {
 export default async function handler(req, res) {
   console.log("INGEST ROUTE HIT, METHOD:", req.method);
 
+  // Always return JSON, even for wrong method, so browser can parse it
   if (req.method !== "POST") {
     return res.status(200).json({
       ok: false,
@@ -93,61 +94,31 @@ export default async function handler(req, res) {
       });
     }
 
-    const { file_path } = fileRow;
-    console.log("Ingesting file_path:", file_path);
+    const filePath = fileRow.file_path;
 
-    let text;
+    // 2) Manually build the PUBLIC URL (this is the part that was going wrong)
+    // For your project/bucket, a public URL looks like:
+    //   <SUPABASE_URL>/storage/v1/object/public/course-files/<filePath>
+    const fileUrl = `${supabaseUrl}/storage/v1/object/public/course-files/${filePath}`;
 
-    // 2A) Try: download directly via Supabase SDK
-    const { data: fileData, error: downloadError } = await supabase.storage
-      .from("course-files")
-      .download(file_path);
+    console.log("Ingest: filePath from DB:", filePath);
+    console.log("Ingest: calculated public fileUrl:", fileUrl);
 
-    if (!downloadError && fileData) {
-      console.log("Download via Supabase SDK succeeded");
-      text = await fileData.text();
-    } else {
-      console.error(
-        "Download via SDK failed, falling back to public URL. Error:",
-        downloadError
-      );
+    // 3) Download the file contents (assuming plain text for now)
+    const response = await fetch(fileUrl);
 
-      // 2B) Fallback: use a public URL + fetch
-      const { data: publicUrlData, error: urlError } = supabase.storage
-        .from("course-files")
-        .getPublicUrl(file_path);
-
-      if (urlError || !publicUrlData?.publicUrl) {
-        console.error("getPublicUrl error:", urlError);
-        return res.status(500).json({
-          ok: false,
-          stage: "download",
-          error: "Could not download file from storage",
-          details: {
-            downloadError: downloadError?.message ?? null,
-            urlError: urlError?.message ?? null,
-          },
-        });
-      }
-
-      const fileUrl = publicUrlData.publicUrl;
-      console.log("Fallback public URL:", fileUrl);
-
-      const resp = await fetch(fileUrl);
-      if (!resp.ok) {
-        console.error("Fetch of public URL failed with status:", resp.status);
-        return res.status(500).json({
-          ok: false,
-          stage: "download",
-          error: "Could not download file from storage",
-          details: {
-            httpStatus: resp.status,
-          },
-        });
-      }
-
-      text = await resp.text();
+    if (!response.ok) {
+      console.error("Download error status:", response.status);
+      return res.status(500).json({
+        ok: false,
+        stage: "download",
+        error: "Could not download file from storage",
+        httpStatus: response.status,
+        fileUrl,
+      });
     }
+
+    const text = await response.text();
 
     if (!text || !text.trim()) {
       return res.status(400).json({
@@ -157,7 +128,7 @@ export default async function handler(req, res) {
       });
     }
 
-    // 3) Split into chunks
+    // 4) Split into chunks
     const chunks = chunkText(text, 1200);
 
     if (chunks.length === 0) {
@@ -168,7 +139,7 @@ export default async function handler(req, res) {
       });
     }
 
-    // 4) Create embeddings for all chunks at once
+    // 5) Create embeddings for all chunks at once
     const embeddingResponse = await openai.embeddings.create({
       model: "text-embedding-3-small",
       input: chunks,
@@ -182,7 +153,7 @@ export default async function handler(req, res) {
       embedding: embeddingResponse.data[index].embedding,
     }));
 
-    // 5) Insert into course_chunks
+    // 6) Insert into course_chunks
     const { error: insertError } = await supabase
       .from("course_chunks")
       .insert(rowsToInsert);
