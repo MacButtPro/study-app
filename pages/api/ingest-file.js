@@ -46,33 +46,35 @@ function chunkText(text, maxChars = 1200) {
 }
 
 export default async function handler(req, res) {
-  // ✅ Keep GET for quick “is it alive?” checks
-  if (req.method === "GET") {
-    return res.status(200).json({
-      ok: true,
-      method: "GET",
-      message: "API route is working.",
-    });
-  }
+  // 🔍 DEBUG: tell us what method the server is actually seeing
+  console.log("INGEST ROUTE HIT, METHOD:", req.method);
 
-  // ✅ Only allow POST for ingestion
+  // Instead of returning 405, return JSON so the browser can always parse it
   if (req.method !== "POST") {
-    res.setHeader("Allow", ["GET", "POST"]);
-    return res.status(405).json({ error: "Method not allowed" });
+    return res.status(200).json({
+      ok: false,
+      stage: "method-check",
+      message: "This route expects POST",
+      receivedMethod: req.method,
+    });
   }
 
   const { courseId, fileId } = req.body || {};
 
   if (!courseId || !fileId) {
-    return res
-      .status(400)
-      .json({ error: "Missing courseId or fileId in request body" });
+    return res.status(400).json({
+      ok: false,
+      stage: "input-validation",
+      error: "Missing courseId or fileId in request body",
+    });
   }
 
   if (!process.env.OPENAI_API_KEY) {
-    return res
-      .status(500)
-      .json({ error: "OPENAI_API_KEY is not set on the server" });
+    return res.status(500).json({
+      ok: false,
+      stage: "env-check",
+      error: "OPENAI_API_KEY is not set on the server",
+    });
   }
 
   try {
@@ -85,9 +87,12 @@ export default async function handler(req, res) {
 
     if (fileError || !fileRow) {
       console.error("File lookup error:", fileError);
-      return res
-        .status(404)
-        .json({ error: "File not found in course_files table" });
+      return res.status(404).json({
+        ok: false,
+        stage: "file-lookup",
+        error: "File not found in course_files table",
+        details: fileError?.message ?? null,
+      });
     }
 
     const { file_path } = fileRow;
@@ -100,35 +105,44 @@ export default async function handler(req, res) {
     const fileUrl = publicUrlData?.publicUrl;
 
     if (!fileUrl) {
-      return res
-        .status(500)
-        .json({ error: "Could not generate public URL for file" });
+      return res.status(500).json({
+        ok: false,
+        stage: "public-url",
+        error: "Could not generate public URL for file",
+      });
     }
 
-    // 3) Download the file contents (assume plain text for now)
+    // 3) Download the file contents (assuming plain text for now)
     const response = await fetch(fileUrl);
     if (!response.ok) {
       console.error("Download error status:", response.status);
-      return res
-        .status(500)
-        .json({ error: "Could not download file from storage" });
+      return res.status(500).json({
+        ok: false,
+        stage: "download",
+        error: "Could not download file from storage",
+        httpStatus: response.status,
+      });
     }
 
     const text = await response.text();
 
     if (!text || !text.trim()) {
-      return res
-        .status(400)
-        .json({ error: "File appears to be empty or not readable as text" });
+      return res.status(400).json({
+        ok: false,
+        stage: "text-check",
+        error: "File appears to be empty or not readable as text",
+      });
     }
 
     // 4) Split into chunks
     const chunks = chunkText(text, 1200);
 
     if (chunks.length === 0) {
-      return res
-        .status(400)
-        .json({ error: "No chunks produced from file contents" });
+      return res.status(400).json({
+        ok: false,
+        stage: "chunking",
+        error: "No chunks produced from file contents",
+      });
     }
 
     // 5) Create embeddings for all chunks at once
@@ -153,18 +167,26 @@ export default async function handler(req, res) {
     if (insertError) {
       console.error("Insert error:", insertError);
       return res.status(500).json({
+        ok: false,
+        stage: "insert",
         error: "Failed to insert chunks into course_chunks",
         details: insertError.message,
       });
     }
 
-    return res
-      .status(200)
-      .json({ success: true, chunksInserted: rowsToInsert.length });
+    return res.status(200).json({
+      ok: true,
+      stage: "done",
+      message: "Ingestion complete",
+      chunksInserted: rowsToInsert.length,
+    });
   } catch (err) {
     console.error("Unexpected error in /api/ingest-file:", err);
-    return res
-      .status(500)
-      .json({ error: "Unexpected server error", details: String(err) });
+    return res.status(500).json({
+      ok: false,
+      stage: "unexpected",
+      error: "Unexpected server error",
+      details: String(err),
+    });
   }
 }
