@@ -76,32 +76,45 @@ export async function getServerSideProps() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
-  const supabase = createClient(url, anonKey);
+  // Simple safety check
+  const hasUrl = Boolean(url);
+  const hasKey = Boolean(anonKey);
 
-  const { data, error } = await supabase
-    .from("courses")
-    .select("id, title, description, created_at")
-    .order("created_at", { ascending: false });
+  let courses = [];
+  let errorMessage = null;
 
-  if (error) {
-    console.error("Supabase error:", error.message);
-    return {
-      props: {
-        courses: [],
-        error: "Failed to load courses."
-      }
-    };
+  if (!hasUrl || !hasKey) {
+    errorMessage = "Missing Supabase URL or anon key env vars.";
+  } else {
+    const supabase = createClient(url, anonKey);
+
+    const { data, error } = await supabase
+      .from("courses")
+      .select("id, title, description, created_at")
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      console.error("Supabase error:", error.message);
+      errorMessage = error.message;
+    } else {
+      courses = data || [];
+    }
   }
 
   return {
     props: {
-      courses: data || [],
-      error: null
+      courses,
+      error: errorMessage,
+      debug: {
+        hasUrl,
+        hasKey,
+        count: courses.length
+      }
     }
   };
 }
 
-export default function CoursesPage({ courses, error }) {
+export default function CoursesPage({ courses, error, debug }) {
   return (
     <div style={pageStyle}>
       <div style={containerStyle}>
@@ -127,30 +140,17 @@ export default function CoursesPage({ courses, error }) {
         </section>
 
         {error && (
-          <p style={{ color: "#f97373", marginTop: "1rem" }}>{error}</p>
+          <p style={{ color: "#f97373", marginTop: "1rem" }}>
+            Error: {error}
+          </p>
         )}
 
-        <section style={courseListStyle}>
-          {courses.length === 0 && !error && (
-            <p style={{ fontSize: "0.95rem", opacity: 0.8 }}>
-              You don&apos;t have any courses yet. Soon you&apos;ll be able to
-              create one from the app.
-            </p>
-          )}
-
-          {courses.map((course) => (
-            <div key={course.id} style={courseCardStyle}>
-              <div style={courseTitleStyle}>
-                {course.title}
-                <span style={badgeStyle}>From Supabase</span>
-              </div>
-              <p style={{ fontSize: "0.9rem", opacity: 0.85 }}>
-                {course.description || "No description yet."}
-              </p>
-            </div>
-          ))}
-        </section>
-      </div>
-    </div>
-  );
-}
+        {/* Temporary debug info — we can remove this later */}
+        <section
+          style={{
+            marginTop: "1rem",
+            fontSize: "0.8rem",
+            opacity: 0.7
+          }}
+        >
+          <div>Debug:
