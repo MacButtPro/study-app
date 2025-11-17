@@ -153,4 +153,33 @@ export default function CoursesPage({ courses, error, debug }) {
             opacity: 0.7
           }}
         >
-          <div>Debug:
+          <div>Debug:</div>
+          <div>hasUrl: {String(debug?.hasUrl)}</div>
+          <div>hasKey: {String(debug?.hasKey)}</div>
+          <div>courses count: {debug?.count}</div>
+        </section>
+
+        <section style={courseListStyle}>
+          {courses.length === 0 && !error && (
+            <p style={{ fontSize: "0.95rem", opacity: 0.8 }}>
+              You don&apos;t have any courses yet. Soon you&apos;ll be able to
+              create one from the app.
+            </p>
+          )}
+
+          {courses.map((course) => (
+            <div key={course.id} style={courseCardStyle}>
+              <div style={courseTitleStyle}>
+                {course.title}
+                <span style={badgeStyle}>From Supabase</span>
+              </div>
+              <p style={{ fontSize: "0.9rem", opacity: 0.85 }}>
+                {course.description || "No description yet."}
+              </p>
+            </div>
+          ))}
+        </section>
+      </div>
+    </div>
+  );
+}
