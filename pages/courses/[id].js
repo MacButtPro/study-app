@@ -12,13 +12,13 @@ const pageStyle = {
   fontFamily:
     "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
   background: "#020617",
-  color: "#e5e7eb"
+  color: "#e5e7eb",
 };
 
 const containerStyle = {
   maxWidth: "900px",
   margin: "0 auto",
-  padding: "2.5rem 1.5rem 3rem"
+  padding: "2.5rem 1.5rem 3rem",
 };
 
 const headerStyle = {
@@ -26,22 +26,22 @@ const headerStyle = {
   justifyContent: "space-between",
   alignItems: "center",
   marginBottom: "1.5rem",
-  gap: "1rem"
+  gap: "1rem",
 };
 
 const titleBlockStyle = {
-  flex: 1
+  flex: 1,
 };
 
 const titleStyle = {
   fontSize: "2rem",
-  fontWeight: 700
+  fontWeight: 700,
 };
 
 const subtitleStyle = {
   opacity: 0.8,
   marginTop: "0.35rem",
-  fontSize: "0.95rem"
+  fontSize: "0.95rem",
 };
 
 const backLinkStyle = {
@@ -50,7 +50,7 @@ const backLinkStyle = {
   color: "#a5b4fc",
   border: "1px solid #4f46e5",
   padding: "0.5rem 0.9rem",
-  borderRadius: "999px"
+  borderRadius: "999px",
 };
 
 const sectionCardStyle = {
@@ -59,19 +59,19 @@ const sectionCardStyle = {
   borderRadius: "0.9rem",
   background:
     "linear-gradient(135deg, rgba(15,23,42,0.95), rgba(30,64,175,0.35))",
-  border: "1px solid rgba(148,163,184,0.4)"
+  border: "1px solid rgba(148,163,184,0.4)",
 };
 
 const sectionTitleStyle = {
   fontSize: "1.1rem",
   fontWeight: 600,
-  marginBottom: "0.5rem"
+  marginBottom: "0.5rem",
 };
 
 const labelStyle = {
   display: "block",
   fontSize: "0.9rem",
-  marginBottom: "0.35rem"
+  marginBottom: "0.35rem",
 };
 
 const inputStyle = {
@@ -82,12 +82,12 @@ const inputStyle = {
   background: "rgba(15,23,42,0.8)",
   color: "#e5e7eb",
   fontSize: "0.9rem",
-  outline: "none"
+  outline: "none",
 };
 
 const fileInputStyle = {
   marginTop: "0.35rem",
-  fontSize: "0.9rem"
+  fontSize: "0.9rem",
 };
 
 const buttonStyle = {
@@ -100,35 +100,57 @@ const buttonStyle = {
   cursor: "pointer",
   background:
     "linear-gradient(135deg, rgba(56,189,248,0.9), rgba(37,99,235,0.9))",
-  color: "#ecfeff"
+  color: "#ecfeff",
+};
+
+const secondaryButtonStyle = {
+  ...buttonStyle,
+  background:
+    "linear-gradient(135deg, rgba(129,140,248,0.9), rgba(37,99,235,0.9))",
 };
 
 const errorStyle = {
   marginTop: "0.5rem",
   fontSize: "0.85rem",
-  color: "#f97373"
-};
-
-const ingestStyle = {
-  marginTop: "0.5rem",
-  fontSize: "0.85rem",
-  color: "#a5b4fc"
+  color: "#f97373",
 };
 
 const smallTextStyle = {
   marginTop: "0.4rem",
   fontSize: "0.8rem",
-  opacity: 0.75
+  opacity: 0.75,
 };
 
 const fileListStyle = {
   marginTop: "0.75rem",
-  fontSize: "0.9rem"
+  fontSize: "0.9rem",
 };
 
 const fileItemStyle = {
   padding: "0.45rem 0.5rem",
-  borderBottom: "1px solid rgba(30,64,175,0.5)"
+  borderBottom: "1px solid rgba(30,64,175,0.5)",
+};
+
+const answerBoxStyle = {
+  marginTop: "0.8rem",
+  padding: "0.85rem 1rem",
+  borderRadius: "0.75rem",
+  background: "rgba(15,23,42,0.9)",
+  border: "1px solid rgba(148,163,184,0.4)",
+  fontSize: "0.9rem",
+  lineHeight: 1.5,
+  whiteSpace: "pre-wrap",
+};
+
+const sourcesListStyle = {
+  marginTop: "0.75rem",
+  fontSize: "0.85rem",
+};
+
+const sourceItemStyle = {
+  padding: "0.4rem 0.45rem",
+  borderLeft: "2px solid rgba(56,189,248,0.6)",
+  marginBottom: "0.35rem",
 };
 
 export async function getServerSideProps(context) {
@@ -148,7 +170,7 @@ export async function getServerSideProps(context) {
   if (courseError || !courseData) {
     console.error("Course fetch error:", courseError?.message);
     return {
-      notFound: true
+      notFound: true,
     };
   }
 
@@ -169,10 +191,10 @@ export async function getServerSideProps(context) {
         id: courseData.id,
         title: courseData.title,
         description: courseData.description,
-        createdAt: courseData.created_at
+        createdAt: courseData.created_at,
       },
-      initialFiles: filesData || []
-    }
+      initialFiles: filesData || [],
+    },
   };
 }
 
@@ -185,9 +207,12 @@ export default function CourseDetailPage({ course, initialFiles }) {
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState("");
 
-  // NEW: ingestion state
-  const [ingesting, setIngesting] = useState(false);
-  const [ingestMessage, setIngestMessage] = useState("");
+  // ASK section state
+  const [question, setQuestion] = useState("");
+  const [askAnswer, setAskAnswer] = useState("");
+  const [askSources, setAskSources] = useState([]);
+  const [asking, setAsking] = useState(false);
+  const [askError, setAskError] = useState("");
 
   const createdDate = course.createdAt
     ? new Date(course.createdAt).toLocaleString()
@@ -196,7 +221,6 @@ export default function CourseDetailPage({ course, initialFiles }) {
   async function handleUpload(e) {
     e.preventDefault();
     setError("");
-    setIngestMessage("");
 
     if (!selectedFile) {
       setError("Please choose a file to upload.");
@@ -229,14 +253,14 @@ export default function CourseDetailPage({ course, initialFiles }) {
           {
             course_id: course.id,
             file_name: cleanTitle,
-            file_path: path
-          }
+            file_path: path,
+          },
         ])
-        .select("id, course_id, file_name, file_path, created_at")
+        .select("id, file_name, file_path, created_at")
         .single();
 
-      if (insertError || !inserted) {
-        console.error("Insert error:", insertError?.message);
+      if (insertError) {
+        console.error("Insert error:", insertError.message);
         setError(
           "File uploaded, but could not save metadata. Please refresh."
         );
@@ -249,51 +273,63 @@ export default function CourseDetailPage({ course, initialFiles }) {
       setFileTitle("");
       setSelectedFile(null);
 
-      // Clear the file input element (reset the form)
+      // Try to reset form element if available
       if (e.target && e.target.reset) {
         e.target.reset();
       }
 
-      // 4) Call AI ingestion endpoint
-      try {
-        setIngesting(true);
-        setIngestMessage(
-          "Processing file with AI (creating chunks)… this may take a few seconds."
-        );
-
-        const res = await fetch("/api/ingest-file", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            courseId: inserted.course_id || course.id,
-            fileId: inserted.id
-          })
-        });
-
-        const json = await res.json();
-        console.log("Ingest response JSON:", json);
-
-        if (!res.ok || !json.ok) {
-          setIngestMessage(
-            `Ingestion error: ${json.error || "Unknown problem"}`
-          );
-        } else {
-          setIngestMessage(
-            `Ingestion complete! Chunks created: ${json.chunksInserted}`
-          );
-        }
-      } catch (ingestErr) {
-        console.error("Ingestion request error:", ingestErr);
-        setIngestMessage("Ingestion failed due to a network/server error.");
-      } finally {
-        setIngesting(false);
-        setUploading(false);
-      }
+      setUploading(false);
     } catch (err) {
       console.error("Unexpected error:", err);
       setError("Something went wrong. Please try again.");
       setUploading(false);
-      setIngesting(false);
+    }
+  }
+
+  async function handleAsk(e) {
+    e.preventDefault();
+    setAskError("");
+    setAskAnswer("");
+    setAskSources([]);
+
+    const q = question.trim();
+    if (!q) {
+      setAskError("Please type a question first.");
+      return;
+    }
+
+    try {
+      setAsking(true);
+
+      const res = await fetch("/api/ask", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          courseId: course.id,
+          question: q,
+          matchCount: 6,
+        }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok || !data.ok) {
+        console.error("ASK error:", data);
+        setAskError(
+          data.error ||
+            "The tutor had trouble answering this. Please try again."
+        );
+        setAsking(false);
+        return;
+      }
+
+      setAskAnswer(data.answer || "");
+      setAskSources(Array.isArray(data.sources) ? data.sources : []);
+      setAsking(false);
+    } catch (err) {
+      console.error("ASK unexpected error:", err);
+      setAskError("Something went wrong while asking. Please try again.");
+      setAsking(false);
     }
   }
 
@@ -302,6 +338,12 @@ export default function CourseDetailPage({ course, initialFiles }) {
       .from("course-files")
       .getPublicUrl(filePath);
     return data.publicUrl;
+  }
+
+  function humanFriendlySource(fileId) {
+    const file = files.find((f) => f.id === fileId);
+    if (!file) return "Unknown file from this course";
+    return file.file_name || "File from this course";
   }
 
   return (
@@ -320,7 +362,7 @@ export default function CourseDetailPage({ course, initialFiles }) {
                 style={{
                   marginTop: "0.4rem",
                   fontSize: "0.8rem",
-                  opacity: 0.7
+                  opacity: 0.7,
                 }}
               >
                 Created at: {createdDate}
@@ -380,16 +422,9 @@ export default function CourseDetailPage({ course, initialFiles }) {
             </div>
 
             {error && <div style={errorStyle}>{error}</div>}
-            {ingestMessage && <div style={ingestStyle}>{ingestMessage}</div>}
 
-            <button
-              type="submit"
-              style={buttonStyle}
-              disabled={uploading || ingesting}
-            >
-              {uploading || ingesting
-                ? "Uploading & ingesting..."
-                : "Upload file"}
+            <button type="submit" style={buttonStyle} disabled={uploading}>
+              {uploading ? "Uploading..." : "Upload file"}
             </button>
 
             <div style={smallTextStyle}>
@@ -405,7 +440,7 @@ export default function CourseDetailPage({ course, initialFiles }) {
                 style={{
                   fontSize: "0.9rem",
                   opacity: 0.8,
-                  marginTop: "0.75rem"
+                  marginTop: "0.75rem",
                 }}
               >
                 No files uploaded yet for this course.
@@ -417,7 +452,7 @@ export default function CourseDetailPage({ course, initialFiles }) {
                     fontSize: "0.9rem",
                     opacity: 0.9,
                     marginTop: "0.85rem",
-                    marginBottom: "0.4rem"
+                    marginBottom: "0.4rem",
                   }}
                 >
                   Files:
@@ -438,7 +473,7 @@ export default function CourseDetailPage({ course, initialFiles }) {
                             rel="noreferrer"
                             style={{
                               color: "#93c5fd",
-                              textDecoration: "underline"
+                              textDecoration: "underline",
                             }}
                           >
                             {file.file_name}
@@ -449,7 +484,7 @@ export default function CourseDetailPage({ course, initialFiles }) {
                             style={{
                               fontSize: "0.8rem",
                               opacity: 0.7,
-                              marginTop: "0.15rem"
+                              marginTop: "0.15rem",
                             }}
                           >
                             Uploaded: {createdAt}
@@ -464,6 +499,70 @@ export default function CourseDetailPage({ course, initialFiles }) {
           </div>
         </section>
 
+        {/* ASK AI section */}
+        <section style={sectionCardStyle}>
+          <h2 style={sectionTitleStyle}>Ask this course a question</h2>
+          <p style={{ fontSize: "0.9rem", opacity: 0.9 }}>
+            Type a question about this course or any of the uploaded materials.
+            The AI tutor will only use content from this course to answer.
+          </p>
+
+          <form onSubmit={handleAsk} style={{ marginTop: "0.9rem" }}>
+            <label style={labelStyle} htmlFor="questionInput">
+              Your question
+            </label>
+            <textarea
+              id="questionInput"
+              rows={3}
+              style={{ ...inputStyle, resize: "vertical" }}
+              placeholder="e.g. Explain the main idea of these notes and give me a quick summary."
+              value={question}
+              onChange={(e) => setQuestion(e.target.value)}
+            />
+
+            {askError && <div style={errorStyle}>{askError}</div>}
+
+            <button
+              type="submit"
+              style={secondaryButtonStyle}
+              disabled={asking}
+            >
+              {asking ? "Thinking..." : "Ask the AI tutor"}
+            </button>
+          </form>
+
+          {askAnswer && (
+            <div style={answerBoxStyle}>
+              <strong style={{ display: "block", marginBottom: "0.35rem" }}>
+                Answer
+              </strong>
+              {askAnswer}
+            </div>
+          )}
+
+          {askSources.length > 0 && (
+            <div style={sourcesListStyle}>
+              <strong style={{ display: "block", marginBottom: "0.3rem" }}>
+                Sources used
+              </strong>
+              {askSources.map((src, idx) => (
+                <div key={idx} style={sourceItemStyle}>
+                  <div style={{ fontWeight: 500 }}>
+                    {humanFriendlySource(src.fileId)}
+                  </div>
+                  {src.content && (
+                    <div style={{ opacity: 0.8 }}>
+                      {src.content.length > 160
+                        ? src.content.slice(0, 160) + "..."
+                        : src.content}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+
         {/* Future features section */}
         <section style={sectionCardStyle}>
           <h2 style={sectionTitleStyle}>What&apos;s coming next</h2>
@@ -471,7 +570,7 @@ export default function CourseDetailPage({ course, initialFiles }) {
             style={{
               marginLeft: "1.1rem",
               fontSize: "0.95rem",
-              opacity: 0.9
+              opacity: 0.9,
             }}
           >
             <li>Let the AI build a personalized learning plan for this course</li>
