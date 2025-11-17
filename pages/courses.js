@@ -1,3 +1,5 @@
+import { createClient } from "@supabase/supabase-js";
+
 const pageStyle = {
   minHeight: "100vh",
   margin: 0,
@@ -70,7 +72,36 @@ const badgeStyle = {
   marginLeft: "0.5rem"
 };
 
-export default function CoursesPage() {
+export async function getServerSideProps() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+  const supabase = createClient(url, anonKey);
+
+  const { data, error } = await supabase
+    .from("courses")
+    .select("id, title, description, created_at")
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    console.error("Supabase error:", error.message);
+    return {
+      props: {
+        courses: [],
+        error: "Failed to load courses."
+      }
+    };
+  }
+
+  return {
+    props: {
+      courses: data || [],
+      error: null
+    }
+  };
+}
+
+export default function CoursesPage({ courses, error }) {
   return (
     <div style={pageStyle}>
       <div style={containerStyle}>
@@ -90,44 +121,34 @@ export default function CoursesPage() {
 
         <section>
           <p style={{ fontSize: "0.95rem", opacity: 0.85 }}>
-            Right now this is just a preview. Soon, you&apos;ll be able to:
+            This page is now connected to your Supabase database. As you add
+            more courses, they&apos;ll appear here automatically.
           </p>
-          <ul
-            style={{
-              marginTop: "0.75rem",
-              marginLeft: "1.1rem",
-              fontSize: "0.95rem",
-              opacity: 0.9
-            }}
-          >
-            <li>Create a course like &quot;Pre-Calculus – Fall 2025&quot;</li>
-            <li>Upload your notes, homework, and lecture transcripts</li>
-            <li>Let the AI build a step-by-step learning path for you</li>
-          </ul>
         </section>
 
-        <section style={courseListStyle}>
-          <div style={courseCardStyle}>
-            <div style={courseTitleStyle}>
-              Pre-Calculus – IVC
-              <span style={badgeStyle}>Example</span>
-            </div>
-            <p style={{ fontSize: "0.9rem", opacity: 0.85 }}>
-              A sample course representing your real class. Later, this will be
-              created automatically from your uploads.
-            </p>
-          </div>
+        {error && (
+          <p style={{ color: "#f97373", marginTop: "1rem" }}>{error}</p>
+        )}
 
-          <div style={courseCardStyle}>
-            <div style={courseTitleStyle}>
-              Trigonometry Review
-              <span style={badgeStyle}>Example</span>
-            </div>
-            <p style={{ fontSize: "0.9rem", opacity: 0.85 }}>
-              Another sample course. Eventually you&apos;ll be able to track all
-              the math you&apos;re studying here.
+        <section style={courseListStyle}>
+          {courses.length === 0 && !error && (
+            <p style={{ fontSize: "0.95rem", opacity: 0.8 }}>
+              You don&apos;t have any courses yet. Soon you&apos;ll be able to
+              create one from the app.
             </p>
-          </div>
+          )}
+
+          {courses.map((course) => (
+            <div key={course.id} style={courseCardStyle}>
+              <div style={courseTitleStyle}>
+                {course.title}
+                <span style={badgeStyle}>From Supabase</span>
+              </div>
+              <p style={{ fontSize: "0.9rem", opacity: 0.85 }}>
+                {course.description || "No description yet."}
+              </p>
+            </div>
+          ))}
         </section>
       </div>
     </div>
