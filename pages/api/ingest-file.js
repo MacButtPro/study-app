@@ -96,23 +96,58 @@ export default async function handler(req, res) {
     const { file_path } = fileRow;
     console.log("Ingesting file_path:", file_path);
 
-    // 2) Download the file directly from Supabase Storage
+    let text;
+
+    // 2A) Try: download directly via Supabase SDK
     const { data: fileData, error: downloadError } = await supabase.storage
       .from("course-files")
       .download(file_path);
 
-    if (downloadError || !fileData) {
-      console.error("Download error:", downloadError);
-      return res.status(500).json({
-        ok: false,
-        stage: "download",
-        error: "Could not download file from storage",
-        details: downloadError?.message ?? null,
-      });
-    }
+    if (!downloadError && fileData) {
+      console.log("Download via Supabase SDK succeeded");
+      text = await fileData.text();
+    } else {
+      console.error(
+        "Download via SDK failed, falling back to public URL. Error:",
+        downloadError
+      );
 
-    // fileData is a Blob; convert to text
-    const text = await fileData.text();
+      // 2B) Fallback: use a public URL + fetch
+      const { data: publicUrlData, error: urlError } = supabase.storage
+        .from("course-files")
+        .getPublicUrl(file_path);
+
+      if (urlError || !publicUrlData?.publicUrl) {
+        console.error("getPublicUrl error:", urlError);
+        return res.status(500).json({
+          ok: false,
+          stage: "download",
+          error: "Could not download file from storage",
+          details: {
+            downloadError: downloadError?.message ?? null,
+            urlError: urlError?.message ?? null,
+          },
+        });
+      }
+
+      const fileUrl = publicUrlData.publicUrl;
+      console.log("Fallback public URL:", fileUrl);
+
+      const resp = await fetch(fileUrl);
+      if (!resp.ok) {
+        console.error("Fetch of public URL failed with status:", resp.status);
+        return res.status(500).json({
+          ok: false,
+          stage: "download",
+          error: "Could not download file from storage",
+          details: {
+            httpStatus: resp.status,
+          },
+        });
+      }
+
+      text = await resp.text();
+    }
 
     if (!text || !text.trim()) {
       return res.status(400).json({
